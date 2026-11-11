@@ -793,10 +793,18 @@ async function handleGuess(
     cosmeticTitle?: string;
   }
 ) {
-  const guessNorm = normalize(rawGuess);
+  const trimmed = String(rawGuess || '').trim();
+  // Only accept single-word answers (including punctuation and numbers; no spaces allowed)
+  if (!trimmed || /\s/.test(trimmed)) {
+    return { valid: false, reason: 'multi_word' };
+  }
+
+  const collapsed = trimmed.replace(/(\d),(?=\d)/g, '$1');
+  const guessNorm = normalize(collapsed);
   if (!guessNorm || guessNorm.length < 1 || STOPLIST.has(guessNorm)) {
     return { valid: false, reason: 'stop_or_short' };
   }
+  const guessPossessiveStem = normalize(collapsed.replace(/['’]s$/i, ''));
 
   round.guessCount++;
   const alreadyRevealed = round.revealedSet.has(guessNorm);
@@ -806,7 +814,7 @@ async function handleGuess(
   const previouslyFoundTitles = round.titleTokens.filter((t) => t.revealed).length;
 
   for (const tt of round.titleTokens) {
-    if (tt.norm === guessNorm && !tt.revealed) {
+    if ((tt.norm === guessNorm || (guessPossessiveStem && tt.norm === guessPossessiveStem)) && !tt.revealed) {
       tt.revealed = true;
       tt.foundBy = {
         username: player.username,
@@ -822,16 +830,22 @@ async function handleGuess(
   if (!alreadyRevealed) {
     for (const para of round.paragraphs) {
       for (const tok of para) {
-        if (tok.type === 'word' && tok.norm === guessNorm && !tok.revealed) {
-          tok.revealed = true;
-          tok.length = tok.text.length;
-          tok.foundBy = {
-            username: player.username,
-            avatar: player.avatar,
-            platform: player.platform,
-          };
-          occurrencesRevealed++;
-          round.revealedWordsCount++;
+        if (tok.type === 'word' && !tok.revealed) {
+          const tokPossessiveStem = normalize(tok.text.replace(/['’]s$/i, ''));
+          if (
+            tok.norm === guessNorm ||
+            (guessPossessiveStem && tokPossessiveStem && tokPossessiveStem === guessPossessiveStem)
+          ) {
+            tok.revealed = true;
+            tok.length = tok.text.length;
+            tok.foundBy = {
+              username: player.username,
+              avatar: player.avatar,
+              platform: player.platform,
+            };
+            occurrencesRevealed++;
+            round.revealedWordsCount++;
+          }
         }
       }
     }
@@ -1111,7 +1125,8 @@ async function startServer() {
   // Also maintain a top-level `let tiktokConn: WebcastPushConnection | null = null;` per prompt specification
   let tiktokConn: WebcastPushConnection | null = null;
 
-  // Process any incoming TikTok chat message against the puzzle (supports multi-word & numbers!)
+  // Process any incoming TikTok chat message against the puzzle:
+  // Only accept single-word answers including punctuation and numbers; ignore multi-word chat messages
   async function evaluateChatIntoGame(chatData: {
     uniqueId?: string;
     nickname?: string;
@@ -1119,27 +1134,22 @@ async function startServer() {
     profilePictureUrl?: string;
   }) {
     const rawComment = String(chatData.comment || '').trim();
-    if (!rawComment) return;
+    // Only accept single-word answers (no whitespace allowed), including punctuation and numbers
+    if (!rawComment || /\s/.test(rawComment)) return;
 
-    // Extract all words/numbers from the comment (including multi-word messages and numbers)
     const collapsed = rawComment.replace(/(\d),(?=\d)/g, '$1');
-    const tokens = collapsed.match(/[\p{L}\p{N}\p{M}]+/gu) || [];
+    const norm = normalize(collapsed);
+    if (!norm || STOPLIST.has(norm)) return;
 
-    let anyUpdated = false;
-    for (const token of tokens) {
-      const norm = normalize(token);
-      if (!norm || STOPLIST.has(norm)) continue;
-      await handleGuess(activeRound, token, {
-        username: chatData.uniqueId || 'tiktok_viewer',
-        displayName: chatData.nickname || chatData.uniqueId || 'Viewer',
-        avatar: chatData.profilePictureUrl || '',
-        platform: 'tiktok',
-        cosmeticTitle: 'TikTok Live',
-      });
-      anyUpdated = true;
-    }
+    const result = await handleGuess(activeRound, rawComment, {
+      username: chatData.uniqueId || 'tiktok_viewer',
+      displayName: chatData.nickname || chatData.uniqueId || 'Viewer',
+      avatar: chatData.profilePictureUrl || '',
+      platform: 'tiktok',
+      cosmeticTitle: 'TikTok Live',
+    });
 
-    if (anyUpdated) {
+    if (result.valid) {
       io.emit('round:state', serializeRound(activeRound));
     }
   }

@@ -200,6 +200,28 @@ export default function App() {
   const socketRef = useRef<Socket | null>(null);
   const prevSolvedRef = useRef<boolean>(false);
   const lastActivityRef = useRef<number>(Date.now());
+  const topSectionRef = useRef<HTMLDivElement | null>(null);
+  const [topSectionHeight, setTopSectionHeight] = useState<number>(424);
+
+  const isTikTokLiveActive = Boolean(
+    authenticatedStreamer || tiktokConnState === 'connected'
+  );
+
+  // Measure the top section (highlighted yellow in user spec) so the Manuscript Box matches its exact height
+  useEffect(() => {
+    const el = topSectionRef.current;
+    if (!el) return;
+    const updateHeight = () => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h > 150) {
+        setTopSectionHeight(h);
+      }
+    };
+    updateHeight();
+    const ro = new ResizeObserver(updateHeight);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [activeNav, round?.roundId, round?.topRankCards?.length, showGridInHybrid]);
 
   const showToast = useCallback((text: string, tone: 'cyan' | 'gold' | 'green' | 'muted' = 'cyan') => {
     setFeedbackToast({ text, tone });
@@ -468,11 +490,16 @@ export default function App() {
     } catch (_) {}
   };
 
-  // Submit a word guess (from input bar or 8-connected KeycapGrid swipe)
+  // Submit a word guess (only accepts single-word answers including punctuation and numbers)
   const submitWordGuess = async (rawWord: string) => {
     recordActivity();
     const clean = rawWord.trim();
     if (!clean) return;
+    if (/\s/.test(clean)) {
+      soundFX.playMiss();
+      showToast('Only single-word answers (including punctuation & numbers) are accepted.', 'muted');
+      return;
+    }
     setGuessInput('');
 
     try {
@@ -495,7 +522,12 @@ export default function App() {
         const r = data.result;
         if (!r.valid) {
           soundFX.playMiss();
-          showToast(`"${clean.toUpperCase()}" is a pre-revealed common scaffolding word.`, 'muted');
+          showToast(
+            r.reason === 'multi_word'
+              ? 'Only single-word answers (including punctuation & numbers) are accepted.'
+              : `"${clean.toUpperCase()}" is a pre-revealed common scaffolding word.`,
+            'muted'
+          );
           return;
         }
         if (r.alreadyRevealed && !r.titleMatched && !r.gridTargetHit) {
@@ -1070,6 +1102,8 @@ export default function App() {
             activeNav === 'WIKIWORD_QUOTE') &&
             round && (
               <main className="flex-1 w-full px-3.5 py-4 space-y-3">
+                {/* ── Top Section (Toolbar + 2-Column Title/Podium/Ranks + Announce Banner) ── */}
+                <div ref={topSectionRef} className="space-y-3">
                 {/* Compact Workspace Mode & Utility Toolbar */}
                 <div className="flex flex-col gap-2 p-2.5 rounded-2xl bg-[#03142f]/90 border border-[#1768b3]">
                   {/* Row 1: Mode Switcher Tabs */}
@@ -1494,13 +1528,16 @@ export default function App() {
                   ) : (
                     <div className="flex items-center justify-between w-full text-[11px] text-[#d8eaff]">
                       <span className="truncate">
-                        Guess words below to uncover the hidden Wikipedia article!
+                        {isTikTokLiveActive
+                          ? 'TikTok Live active! Viewers guess single words in chat!'
+                          : 'Guess single words below to uncover the hidden article!'}
                       </span>
                       <span className="font-mono tabular-nums text-[#ffe536] shrink-0">
                         +50k Title
                       </span>
                     </div>
                   )}
+                </div>
                 </div>
 
                 {/* ── Horizontal Guess Ticker ── */}
@@ -1522,28 +1559,30 @@ export default function App() {
                   </div>
                 )}
 
-                {/* ── Guess Composer Input Bar ── */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    submitWordGuess(guessInput);
-                  }}
-                  className="flex items-center gap-2 p-1.5 rounded-2xl bg-[#03142f] border-2 border-[#2186c6] shadow-[0_0_16px_rgba(19,132,211,0.2)]"
-                >
-                  <input
-                    type="text"
-                    value={guessInput}
-                    onChange={(e) => setGuessInput(e.target.value)}
-                    placeholder="Guess a word..."
-                    className="flex-1 min-w-0 px-3.5 py-2 rounded-xl bg-[#020a25] border border-[#286296] text-sm font-bold text-white placeholder-[#96b8dd]/60 focus:outline-none focus:border-[#19e4ff]"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl bg-gradient-to-b from-[#ffed60] to-[#ffca27] hover:from-[#fff380] hover:to-[#ffd645] text-[#17210a] font-extrabold text-xs border border-[#ffed6c] flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                {/* ── Guess Composer Input Bar (Removed when TikTok Live is connected) ── */}
+                {!isTikTokLiveActive && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      submitWordGuess(guessInput);
+                    }}
+                    className="flex items-center gap-2 p-1.5 rounded-2xl bg-[#03142f] border-2 border-[#2186c6] shadow-[0_0_16px_rgba(19,132,211,0.2)]"
                   >
-                    <Send className="w-3.5 h-3.5" /> Guess
-                  </button>
-                </form>
+                    <input
+                      type="text"
+                      value={guessInput}
+                      onChange={(e) => setGuessInput(e.target.value)}
+                      placeholder="Guess a single word..."
+                      className="flex-1 min-w-0 px-3.5 py-2 rounded-xl bg-[#020a25] border border-[#286296] text-sm font-bold text-white placeholder-[#96b8dd]/60 focus:outline-none focus:border-[#19e4ff]"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-xl bg-gradient-to-b from-[#ffed60] to-[#ffca27] hover:from-[#fff380] hover:to-[#ffd645] text-[#17210a] font-extrabold text-xs border border-[#ffed6c] flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <Send className="w-3.5 h-3.5" /> Guess
+                    </button>
+                  </form>
+                )}
 
                 {/* ── Wikirec 8-Connected Keycap Grid & Target Pyramid ── */}
                 {(activeNav === 'WIKIREC_GRID' ||
@@ -1559,23 +1598,26 @@ export default function App() {
                     </section>
                   )}
 
-                {/* ── Redacted Wikipedia Article Body Panel ── */}
+                {/* ── Condensed Redacted Wikipedia Manuscript Box (Same Height as Top Section + Scrollbar) ── */}
                 <section
-                  className={`p-4 rounded-2xl border-2 border-[#137bcc] shadow-[inset_0_1px_7px_rgba(25,228,255,0.15)] space-y-3 ${
+                  className={`p-4 rounded-2xl border-2 border-[#137bcc] shadow-[inset_0_1px_7px_rgba(25,228,255,0.15)] flex flex-col overflow-hidden ${
                     isLightMode
                       ? 'bg-white text-[#102c4b]'
                       : 'bg-gradient-to-br from-[#06244b] to-[#03142f] text-[#f3f8ff]'
                   }`}
-                  style={{ fontFamily: 'var(--font-article)' }}
+                  style={{
+                    fontFamily: 'var(--font-article)',
+                    height: `${topSectionHeight}px`,
+                  }}
                 >
-                  <div className="flex items-center justify-between border-b border-[#1768b3]/40 pb-2 text-[11px] text-[#96b8dd]">
+                  <div className="flex items-center justify-between border-b border-[#1768b3]/40 pb-2 mb-3 text-[11px] text-[#96b8dd] shrink-0">
                     <span>Wikipedia Redacted Manuscript</span>
                     <span className="font-mono tabular-nums">
                       {Math.round((round.revealedWordsCount / Math.max(1, round.totalWords)) * 100)}% Uncovered
                     </span>
                   </div>
 
-                  <div className="space-y-3.5 leading-7 text-[15px]">
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-3.5 leading-7 text-[15px] wk-manuscript-scroll">
                     {round.paragraphs.map((para, pIdx) => (
                       <p key={pIdx} className="break-words">
                         {para.map((tok) => {

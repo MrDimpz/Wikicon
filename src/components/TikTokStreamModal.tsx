@@ -85,7 +85,7 @@ export const TikTokStreamModal: React.FC<TikTokStreamModalProps> = ({
   // Simulate / Debug panel state
   const [simNickname, setSimNickname] = useState('Aurora Explorer');
   const [simAvatarUrl, setSimAvatarUrl] = useState('');
-  const [simComment, setSimComment] = useState('polar lights 1920');
+  const [simComment, setSimComment] = useState('polar!');
   const [simGiftName, setSimGiftName] = useState('Galaxy');
 
   useEffect(() => {

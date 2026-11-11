@@ -1,6 +1,8 @@
 {
   "name": "WikiContexto × Wikirec — Word Tycoon Ecosystem",
-  "description": "Live multiplayer & solo Wikipedia semantic puzzle and 8-connected keycap grid word search with real-time TikTok Live & TikFinity stream connectivity and Word Tycoon economy.",
+  "description": "Live multiplayer & solo Wikipedia semantic puzzlewith real-time TikTok Live connectivity",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
